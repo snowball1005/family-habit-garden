@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: family-habit-garden
+    runtime: static
+    buildCommand: echo "Static family habit garden - no build required"
+    staticPublishPath: public
+    autoDeployTrigger: commit

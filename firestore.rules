@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signed() { return request.auth != null; }
+    function fam(fid) { return get(/databases/$(database)/documents/families/$(fid)); }
+    function member(fid) { return get(/databases/$(database)/documents/families/$(fid)/members/$(request.auth.uid)); }
+    function hasMember(fid) { return signed() && exists(/databases/$(database)/documents/families/$(fid)/members/$(request.auth.uid)); }
+    function isParent(fid) { return signed() && fam(fid).data.ownerUid == request.auth.uid; }
+    function myKid(fid) { return member(fid).data.kid; }
+    match /families/{fid} {
+      allow create: if signed() && request.resource.data.ownerUid == request.auth.uid && request.resource.data.keys().hasOnly(['ownerUid','createdAt','exam']);
+      allow read: if hasMember(fid) || isParent(fid);
+      allow update: if isParent(fid) && request.resource.data.ownerUid == resource.data.ownerUid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['exam']);
+      allow delete: if false;
+      match /members/{uid} {
+        allow get: if signed() && (uid == request.auth.uid || isParent(fid));
+        allow list: if isParent(fid);
+        allow create, update: if isParent(fid) && request.resource.data.keys().hasOnly(['role','kid','joinedAt']) && ((uid == request.auth.uid && request.resource.data.role == 'parent' && request.resource.data.kid == -1) || (uid != fam(fid).data.ownerUid && request.resource.data.role == 'child' && request.resource.data.kid in [0,1,2]));
+        allow delete: if isParent(fid) && uid != request.auth.uid;
+      }
+      match /checks/{cid} {
+        allow read: if hasMember(fid);
+        allow create, update: if hasMember(fid) && (isParent(fid) || (member(fid).data.role == 'child' && request.resource.data.kid == myKid(fid))) && request.resource.data.keys().hasOnly(['kid','date','taskId','status','updatedBy','updatedAt']) && request.resource.data.kid in [0,1,2] && request.resource.data.status in ['done','skip','clear'] && request.resource.data.updatedBy == request.auth.uid && request.resource.data.date is string && request.resource.data.taskId is string && cid == (string(request.resource.data.kid) + '_' + request.resource.data.date + '_' + request.resource.data.taskId);
+        allow delete: if false;
+      }
+      match /meetings/{week} {
+        allow read: if hasMember(fid);
+        allow create, update: if isParent(fid) && request.resource.data.keys().hasOnly(['good','hard','goals','updatedAt']);
+        allow delete: if false;
+      }
+    }
+  }
+}
